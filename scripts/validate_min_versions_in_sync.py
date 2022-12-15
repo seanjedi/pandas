@@ -17,6 +17,9 @@ from __future__ import annotations
 import pathlib
 import sys
 
+files_root = pathlib.Path("").absolute().glob("*.y*ml")
+files_ci_deps = pathlib.Path("ci/deps").absolute().glob("*.y*ml")
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:
@@ -39,6 +42,18 @@ import version
 sys.modules["pandas.util.version"] = version
 sys.modules["pandas.util._exceptions"] = _exceptions
 import _optional
+
+
+def get_next_yml_file(files_iterator) -> str:
+    return next(files_iterator, None)
+
+
+def check_yml_files(files_iterator):
+    yml_file_path = get_next_yml_file(files_iterator)
+    while yml_file_path is not None:
+        with open(yml_file_path, encoding="utf-8") as f:
+            required_deps, ci_optional = get_versions_from_ci(f.readlines())
+        yml_file_path = get_next_yml_file(files_iterator)
 
 
 def get_versions_from_code() -> dict[str, str]:
@@ -69,11 +84,18 @@ def get_versions_from_ci(content: list[str]) -> tuple[dict[str, str], dict[str, 
         elif "- pip:" in line:
             continue
         elif seen_required and line.strip():
+            line = line.split("#")[0]
             if "==" in line:
                 package, version = line.strip().split("==")
-
-            else:
+            elif ">=" in line:
+                package, version = line.strip().split(">=")
+            elif "=" in line:
                 package, version = line.strip().split("=")
+            elif "<" in line:
+                package, version = line.strip().split("<")
+            else:
+                package = line.strip()
+                version = ""
             package = package[2:]
             if package in EXCLUDE_DEPS:
                 continue
@@ -110,6 +132,8 @@ def get_versions_from_toml() -> dict[str, str]:
 
 
 def main():
+    check_yml_files(files_root)
+    check_yml_files(files_ci_deps)
     with open(CI_PATH, encoding="utf-8") as f:
         _, ci_optional = get_versions_from_ci(f.readlines())
     code_optional = get_versions_from_code()
