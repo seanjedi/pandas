@@ -43,16 +43,19 @@ sys.modules["pandas.util.version"] = version
 sys.modules["pandas.util._exceptions"] = _exceptions
 import _optional
 
+FLAG = 0
+
 
 def get_next_yml_file(files_iterator) -> str:
     return next(files_iterator, None)
 
 
-def check_yml_files(files_iterator):
+def check_yml_files(files_iterator, code_optional, setup_optional):
     yml_file_path = get_next_yml_file(files_iterator)
     while yml_file_path is not None:
         with open(yml_file_path, encoding="utf-8") as f:
             required_deps, ci_optional = get_versions_from_ci(f.readlines())
+        find_diff(ci_optional, code_optional, setup_optional, yml_file_path)
         yml_file_path = get_next_yml_file(files_iterator)
 
 
@@ -87,22 +90,29 @@ def get_versions_from_ci(content: list[str]) -> tuple[dict[str, str], dict[str, 
             line = line.split("#")[0]
             if "==" in line:
                 package, version = line.strip().split("==")
+                # pin = "=="
             elif ">=" in line:
                 package, version = line.strip().split(">=")
+                # pin = ">="
             elif "=" in line:
                 package, version = line.strip().split("=")
+                # pin = "="
             elif "<" in line:
                 package, version = line.strip().split("<")
+                # pin = "<"
             else:
                 package = line.strip()
                 version = ""
+                # pin = ""
             package = package[2:]
             if package in EXCLUDE_DEPS:
                 continue
             if not seen_optional:
+                # required_deps[package.casefold()] = {"version": version, "pin": pin}
                 required_deps[package.casefold()] = version
             else:
                 optional_deps[package.casefold()] = version
+                # optional_deps[package.casefold()] = {"version": version, "pin": pin}
     return required_deps, optional_deps
 
 
@@ -131,14 +141,13 @@ def get_versions_from_toml() -> dict[str, str]:
     return optional_dependencies
 
 
-def main():
-    check_yml_files(files_root)
-    check_yml_files(files_ci_deps)
-    with open(CI_PATH, encoding="utf-8") as f:
-        _, ci_optional = get_versions_from_ci(f.readlines())
-    code_optional = get_versions_from_code()
-    setup_optional = get_versions_from_toml()
-
+def find_diff(ci_optional, code_optional, setup_optional, yml_file_path):
+    # ci_versions = []
+    # for keys in ci_optional:
+    #     print(keys)
+    #     ci_versions.append(ci_optional[keys]["version"])
+    # print(ci_versions)
+    # print(code_optional)
     diff = (ci_optional.items() | code_optional.items() | setup_optional.items()) - (
         ci_optional.items() & code_optional.items() & setup_optional.items()
     )
@@ -148,19 +157,31 @@ def main():
         out = sys.stdout
         out.write(
             f"The follow minimum version differences were found between  "
-            f"{CI_PATH}, {CODE_PATH} AND {SETUP_PATH}. "
+            f"{yml_file_path}, {CODE_PATH} AND {SETUP_PATH}. "
             f"Please ensure these are aligned: \n\n"
         )
 
         for package in packages:
             out.write(
                 f"{package}\n"
-                f"{CI_PATH}: {ci_optional.get(package, 'Not specified')}\n"
+                f"{yml_file_path}: {ci_optional.get(package, 'Not specified')}\n"
                 f"{CODE_PATH}: {code_optional.get(package, 'Not specified')}\n"
                 f"{SETUP_PATH}: {setup_optional.get(package, 'Not specified')}\n\n"
             )
-        sys.exit(1)
-    sys.exit(0)
+        global FLAG
+        FLAG = 1
+
+
+def main():
+    code_optional = get_versions_from_code()
+    setup_optional = get_versions_from_toml()
+    check_yml_files(files_root, code_optional, setup_optional)
+    check_yml_files(files_ci_deps, code_optional, setup_optional)
+    # with open(CI_PATH, encoding="utf-8") as f:
+    #     _, ci_optional = get_versions_from_ci(f.readlines())
+
+    global FLAG
+    sys.exit(FLAG)
 
 
 if __name__ == "__main__":
